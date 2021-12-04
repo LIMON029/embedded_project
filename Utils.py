@@ -1,5 +1,4 @@
 # -*- coding: utf-8 -*-
-import serial
 import numpy as np
 from Image import *
 
@@ -36,10 +35,26 @@ def SlicePart(im, images, slices):
             plus_weights.append(weight)
         last_weight = weight
     if plus_weights_cnt > minus_weights_cnt:
-        return points, plus_weights
+        return points, plus_weights, crop_img, last_weight
     else:
-        return points, minus_weights
+        return points, minus_weights, crop_img, last_weight
 
+def LastSlicePart(im, images, slices):
+    height, width = im.shape[:2]
+    sl = int(height / slices);
+    points = []
+    weights = []
+
+    for i in range(slices):
+        part = sl * i
+        crop_img = im[part:part + sl, 0:width]
+        # 조각난 이미지 crop_img를 images[]에 저장
+        images[i].image = crop_img
+        # Image.py에서 윤곽선을 그리고 무게중심을 표시
+        cPoint, weight = images[i].Process()
+        points.append(cPoint)
+        weights.append(weight)
+    return points, weights
 
 # 조각난 이미지를 다시 합친다
 def RepackImages(images):
@@ -79,20 +94,37 @@ def RemoveBackground(image, b):
     # ////////////////COLOR SELECTION/////////////
 
 
-def SendCommand(weight):
-    # ser = serial.Serial('/dev/ttyUSB0', 9600)
-    # if ser is None:
-    #     ser = serial.Serial('/dev/ttyUSB0', 9600)
+def SendCommand(ser, weight, last_weight, last_w):
 
-    if weight.count(max(weight, key=weight.count)) > len(weight)/2:
+
+    if weight.count(max(weight, key=weight.count)) > len(weight)/2 or last_weight.count(max(last_weight, key=last_weight.count)) > len(last_weight)/2:
         direction = 'G'
         if max(weight, key=weight.count) == 1:
             direction = 'B'
     else:
-        if weight[0] < 0:
-            direction = weight[1] - weight[0] < 0 and 'L' or 'R'
-        if weight[0] > 0:
-            direction = weight[1] - weight[0] > 0 and 'R' or 'L'
+        minus = 0
+        plus = 0
+        for w in last_weight:
+            if w < 0:
+                minus += 1
+            elif w > 0:
+                plus += 1
 
+        # 값이 점점 감소하면 L, 값이 점점 증가하면 R
+        direction = last_weight[1] - last_weight[0] < 0 and 'L' or 'R'
+
+        if plus == minus:
+            direction = 'G'
+        elif max(plus, minus) == 4:
+            my_weights = []
+            for w in last_weight:
+                if np.sign(w) == np.sign(last_w):
+                    my_weights.append(w)
+            if abs(my_weights[1] - my_weights[0]) < 5:
+                direction = 'G'
+            else:
+                direction = my_weights[1] - my_weights[0] < 0 and 'L' or 'R'
+    # cmd = ("%c\n" % (direction)).encode('ascii')
+    # ser.write(cmd)
     print(direction)
     return direction
